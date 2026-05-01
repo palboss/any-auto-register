@@ -1,4 +1,6 @@
 """OpenAI 专用 HTTP 客户端"""
+from typing import Any, Dict, Optional, Tuple
+
 from core.http_client import HTTPClient, HTTPClientError, RequestConfig
 from .constants import ERROR_MESSAGES
 import logging
@@ -32,7 +34,7 @@ class OpenAIHTTPClient(HTTPClient):
         # 默认请求头
         self.default_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                         "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
             "Accept": "application/json",
             "Accept-Language": "en-US,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",

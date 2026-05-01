@@ -2,6 +2,7 @@
 常量定义
 """
 
+import os
 import random
 from datetime import datetime
 from enum import Enum
@@ -49,22 +50,44 @@ APP_DESCRIPTION = "自动注册 OpenAI/Codex CLI 账号的系统"
 # OpenAI OAuth 相关常量
 # ============================================================================
 
-# OAuth 参数
-OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
-OAUTH_AUTH_URL = "https://auth.openai.com/oauth/authorize"
-OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
-OAUTH_REDIRECT_URI = "http://localhost:1455/auth/callback"
-OAUTH_SCOPE = "openid email profile offline_access"
+# OpenAI 基础 URL（支持通过环境变量覆盖）
+OPENAI_AUTH = os.environ.get("OPENAI_AUTH_BASE_URL", "https://auth.openai.com")
+CHATGPT_APP = os.environ.get("CHATGPT_APP_URL", "https://chatgpt.com")
+PLATFORM_LOGIN_ENTRY = os.environ.get("PLATFORM_LOGIN_ENTRY", "https://platform.openai.com/login")
+
+# OAuth 参数（支持通过环境变量覆盖）
+# 注册阶段使用 ChatGPT Web client（无 add_phone 要求）
+OAUTH_CLIENT_ID = os.environ.get("OAUTH_CLIENT_ID", "app_X8zY6vW2pQ9tR3dE7nK1jL5gH")
+OAUTH_AUTH_URL = f"{OPENAI_AUTH}/api/accounts/authorize"
+OAUTH_TOKEN_URL = f"{OPENAI_AUTH}/oauth/token"
+OAUTH_REDIRECT_URI = "https://chatgpt.com/api/auth/callback/openai"
+OAUTH_SCOPE = "openid email profile offline_access model.request model.read organization.read organization.write"
+
+# Token 获取使用 Codex CLI client（公开客户端，支持 PKCE）
+CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
+CODEX_SCOPE = "openid email profile offline_access"
+
+# Sentinel（PoW 防护）- 版本号可能随 OpenAI 更新而变化（支持通过环境变量覆盖）
+SENTINEL_BASE = os.environ.get("SENTINEL_BASE_URL", "https://sentinel.openai.com")
+SENTINEL_SDK_VERSION = os.environ.get("SENTINEL_SDK_VERSION", "20260124ceb8")
+SENTINEL_FRAME_VERSION = os.environ.get("SENTINEL_FRAME_VERSION", "20260219f9f6")
+SENTINEL_SDK_URL = f"{SENTINEL_BASE}/sentinel/{SENTINEL_SDK_VERSION}/sdk.js"
+SENTINEL_REQ_URL = f"{SENTINEL_BASE}/backend-api/sentinel/req"
+SENTINEL_FRAME_URL = f"{SENTINEL_BASE}/backend-api/sentinel/frame.html?sv={SENTINEL_FRAME_VERSION}"
+
+# OAuth consent 页面表单选择器
+OAUTH_CONSENT_FORM_SELECTOR = 'form[action*="/sign-in-with-chatgpt/"][action*="/consent"]'
 
 # OpenAI API 端点
 OPENAI_API_ENDPOINTS = {
-    "sentinel": "https://sentinel.openai.com/backend-api/sentinel/req",
-    "signup": "https://auth.openai.com/api/accounts/authorize/continue",
-    "register": "https://auth.openai.com/api/accounts/user/register",
-    "send_otp": "https://auth.openai.com/api/accounts/email-otp/send",
-    "validate_otp": "https://auth.openai.com/api/accounts/email-otp/validate",
-    "create_account": "https://auth.openai.com/api/accounts/create_account",
-    "select_workspace": "https://auth.openai.com/api/accounts/workspace/select",
+    "sentinel": SENTINEL_REQ_URL,
+    "signup": f"{OPENAI_AUTH}/api/accounts/authorize/continue",
+    "register": f"{OPENAI_AUTH}/api/accounts/user/register",
+    "send_otp": f"{OPENAI_AUTH}/api/accounts/email-otp/send",
+    "validate_otp": f"{OPENAI_AUTH}/api/accounts/email-otp/validate",
+    "create_account": f"{OPENAI_AUTH}/api/accounts/create_account",
+    "select_workspace": f"{OPENAI_AUTH}/api/accounts/workspace/select",
 }
 
 # OpenAI 页面类型（用于判断账号状态）
@@ -162,6 +185,13 @@ FIRST_NAMES = [
     "Grace", "Lily", "Chloe", "Zoey", "Nora", "Aria", "Hazel", "Aurora", "Stella", "Ivy"
 ]
 
+LAST_NAMES = [
+    "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
+    "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin",
+    "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
+    "Walker", "Young", "Allen", "King", "Wright", "Scott", "Torres", "Nguyen", "Hill", "Flores"
+]
+
 def generate_random_user_info() -> dict:
     """
     生成随机用户信息
@@ -169,12 +199,13 @@ def generate_random_user_info() -> dict:
     Returns:
         包含 name 和 birthdate 的字典
     """
-    # 随机选择名字
-    name = random.choice(FIRST_NAMES)
+    first_name = random.choice(FIRST_NAMES)
+    last_name = random.choice(LAST_NAMES)
+    name = f"{first_name} {last_name}"
 
-    # 生成随机生日（18-45岁）
+    # 生成随机生日（25-40岁，避免边界年龄问题）
     current_year = datetime.now().year
-    birth_year = random.randint(current_year - 45, current_year - 18)
+    birth_year = random.randint(current_year - 40, current_year - 25)
     birth_month = random.randint(1, 12)
     # 根据月份确定天数
     if birth_month in [1, 3, 5, 7, 8, 10, 12]:

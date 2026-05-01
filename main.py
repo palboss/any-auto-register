@@ -1,40 +1,99 @@
-"""account_manager - 多平台账号管理后台"""
 import os
+import sys
 from contextlib import asynccontextmanager
+
+# 把 stdout/stderr 强制成 utf-8（Windows 中文版默认是 gbk，碰到 ✗ ✓ 等
+# 非 GBK 字符会抛 UnicodeEncodeError 让进程崩溃）。errors="replace" 双保险，
+# 任何编码失败的字符替换成 ? 而不是抛错。
+# 同时设置 PYTHONUTF8 环境变量，确保子进程也使用 UTF-8。
+os.environ.setdefault("PYTHONUTF8", "1")
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+# 兜底：如果 reconfigure 不可用（PyInstaller 某些版本），用 wrapper 包一层
+if sys.stdout is not None and getattr(sys.stdout, "encoding", "").lower() not in ("utf-8", "utf8"):
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+    except Exception:
+        pass
+if sys.stderr is not None and getattr(sys.stderr, "encoding", "").lower() not in ("utf-8", "utf8"):
+    try:
+        import io
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+    except Exception:
+        pass
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+# PyInstaller 静态分析钩子 — 让 modulefinder 跟踪到 Solver 子进程依赖（quart 等）
+# 不会在运行时执行，只是给 PyInstaller 看
+if False:  # pragma: no cover
+    import services.turnstile_solver.api_solver  # noqa: F401
+    import quart  # noqa: F401
+    import patchright  # noqa: F401
+    import rich  # noqa: F401
+
+from api.account_checks import router as account_checks_router
+from api.accounts import router as accounts_router
+from api.actions import router as actions_router
+from api.auth import router as auth_router
+from api.config import router as config_router
+from core.auth import AuthMiddleware
+from api.health import router as health_router
+from api.lifecycle import router as lifecycle_router
+from api.platform_capabilities import router as platform_capabilities_router
+from api.platforms import router as platforms_router
+from api.provider_definitions import router as provider_definitions_router
+from api.provider_settings import router as provider_settings_router
+from api.proxies import router as proxies_router
+from api.sms import router as sms_router
+from api.stats import router as stats_router
+from api.system import router as system_router
+from api.task_commands import router as task_commands_router
+from api.task_logs import router as task_logs_router
+from api.tasks import router as tasks_router
 from core.db import init_db
 from core.registry import load_all
-from api.accounts import router as accounts_router
-from api.tasks import router as tasks_router
-from api.platforms import router as platforms_router
-from api.proxies import router as proxies_router
-from api.config import router as config_router
-from api.actions import router as actions_router
+from providers.registry import load_all as load_providers
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     load_all()
+    load_providers()
     print("[OK] 数据库初始化完成")
     from core.registry import list_platforms
     print(f"[OK] 已加载平台: {[p['name'] for p in list_platforms()]}")
     from core.scheduler import scheduler
     scheduler.start()
+    from services.task_runtime import task_runtime
+    task_runtime.start()
     from services.solver_manager import start_async
     start_async()
+    from core.lifecycle import lifecycle_manager
+    lifecycle_manager.start()
     yield
+    from core.lifecycle import lifecycle_manager as _lifecycle_manager
+    _lifecycle_manager.stop()
     from core.scheduler import scheduler as _scheduler
     _scheduler.stop()
+    from services.task_runtime import task_runtime as _task_runtime
+    _task_runtime.stop()
     from services.solver_manager import stop
     stop()
 
 
-app = FastAPI(title="Account Manager", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Account Manager", version="2.0.0", lifespan=lifespan)
 
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -43,25 +102,23 @@ app.add_middleware(
 )
 
 app.include_router(accounts_router, prefix="/api")
-app.include_router(tasks_router, prefix="/api")
-app.include_router(platforms_router, prefix="/api")
-app.include_router(proxies_router, prefix="/api")
-app.include_router(config_router, prefix="/api")
+app.include_router(account_checks_router, prefix="/api")
 app.include_router(actions_router, prefix="/api")
-
-
-@app.get("/api/solver/status")
-def solver_status():
-    from services.solver_manager import is_running
-    return {"running": is_running()}
-
-
-@app.post("/api/solver/restart")
-def solver_restart():
-    from services.solver_manager import stop, start_async
-    stop()
-    start_async()
-    return {"message": "重启中"}
+app.include_router(auth_router, prefix="/api")
+app.include_router(config_router, prefix="/api")
+app.include_router(health_router, prefix="/api")
+app.include_router(lifecycle_router, prefix="/api")
+app.include_router(platforms_router, prefix="/api")
+app.include_router(platform_capabilities_router, prefix="/api")
+app.include_router(provider_definitions_router, prefix="/api")
+app.include_router(provider_settings_router, prefix="/api")
+app.include_router(proxies_router, prefix="/api")
+app.include_router(sms_router, prefix="/api")
+app.include_router(stats_router, prefix="/api")
+app.include_router(tasks_router, prefix="/api")
+app.include_router(task_commands_router, prefix="/api")
+app.include_router(task_logs_router, prefix="/api")
+app.include_router(system_router, prefix="/api")
 
 
 _static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -74,5 +131,15 @@ if os.path.isdir(_static_dir):
 
 
 if __name__ == "__main__":
+    import sys
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+    # 当 backend 被自己以 --solver 参数 spawn 时（PyInstaller 打包模式），
+    # 不启动 FastAPI 主服务，而是作为 Turnstile Solver 子进程运行
+    if len(sys.argv) > 1 and sys.argv[1] == "--solver":
+        sys.argv = [sys.argv[0]] + sys.argv[2:]  # 把 --solver 摘掉，让 argparse 看到剩余参数
+        from services.turnstile_solver.start import main as solver_main
+        solver_main()
+        sys.exit(0)
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -25,16 +25,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 安装 Python 依赖
+# 安装 Python 依赖（包含 Solver 依赖：patchright, quart, rich）
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 安装 Playwright 浏览器
+# 安装 patchright/playwright 浏览器（Solver 使用）
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN playwright install chromium --with-deps || true
+RUN playwright install --with-deps chromium
+
+# 安装 camoufox 浏览器（Solver 的 camoufox 模式使用）
+RUN python -m camoufox fetch
 
 # 复制后端代码
+ARG APP_VERSION=dev
 COPY . .
+# 注入版本号
+RUN echo "__version__ = \"${APP_VERSION}\"" > core/version.py
 # 不需要 .venv 和 frontend 源码
 RUN rm -rf .venv frontend
 
@@ -45,6 +51,10 @@ COPY --from=frontend-builder /app/static ./static
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
-EXPOSE 8000 6080
+# APP_PASSWORD: 运行时通过 -e APP_PASSWORD=xxx 设置
+# 不设置则无密码保护（适用于本地使用）
+ENV APP_PASSWORD=""
+
+EXPOSE 8000 6080 8889
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
